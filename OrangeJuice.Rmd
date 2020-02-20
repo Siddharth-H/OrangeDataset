@@ -1,0 +1,420 @@
+---
+title: 'Machine Learning Project: Orange Juice Analysis'
+author: "Siddharth Hatkar"
+date: "11/18/2019"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  html_document:
+    highlight: tango
+    number_section: yes
+    theme: united
+    toc: yes
+    toc_depth: 3
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+\newpage
+Problem:
+---------------
+The Branch Manager wants to know what variables or attributes are responsible for the customer's decision to buy MM. Also, he wants to know how we can improve the sales of MM. Here, the problem is that several variables can be correlated to the decision of a customer to buy MM or not. Like there may be some factor which, if increased, may increase the probability of the purchase or, if decreased, may lower the chances of the customer buying MM. Also, there may be statistically insignificant and does not influence the outcome variable. If we consider all these attributes for analysis, our model becomes more complex and thus more difficult to analyze (thus, not following Occam's razor). Thus, we need a simpler model for our analysis, and for that first, we need to decide which attributes to select.
+
+On the other hand, the Sales Manager is more focused on predicting the chances of a customer buying MM, and he wants a predictive model that can do this task. The problem with the predictive model is that it will only provide a rate or probability of an outcome to happen, i.e., we still are not sure what the outcome will be, and we are only guessing logically. Also, to calculate the probability of a customer buying MM, we need to know the variables which are influencing the outcome. Then we need to choose a method to perform prediction on our model, and this method should have good accuracy(like low AIC).
+
+
+Objective:
+------------
+
+  - To find out varaibles which can influence the probabilty of a customer to purchase MM.
+  - To create a model which can predict the probability of a customer to purchase MM.
+
+Methods:
+------------
+  - Logistic Regression
+  - SVM
+    - Linear
+    - Radial
+
+
+
+
+
+\newpage
+# 1 Loading Data and Libraries
+```{r library_install, echo=TRUE}
+library("dataPreparation")
+library("mlbench")
+library("e1071")
+library("caret")
+library("ROCR")
+library("kernlab")
+library("corrplot")
+library("caret")
+library("dplyr")
+
+OJ <- read.csv(url("http://data.mishra.us/files/OJ.csv"))
+
+```
+
+
+
+# 2  Data Preparation
+Before creating the model, we need to prepare our data in such a way that it will not hinder the analysis and model creation. This can be done using Exploratory Data Analysis techniques.
+## 2.1 Data Cleaning:
+In this section, we are going to remove outliers, NAs and any unecessary attribute from our data frame.
+### 2.1.1 Checking for outliers
+
+
+
+```{r, echo=TRUE}
+summary(OJ)
+```
+
+
+
+
+
+### 2.1.2 Remove NAs
+First, we need to prepare the data to apply Logistic Regression or SVM. To do this, we need to remove NA from our data, if any present. 
+
+```{r, echo=TRUE}
+#check for NA
+lapply(OJ, function(x) sum(is.na(x)))
+```
+### 2.1.3 Remove Unnecesaary variables
+Now, we need to remove the varaibles from our data frame which are constant, double, bijection or included.
+
+
+```{r, echo=TRUE}
+## Removing irrelevant variables
+
+constant_cols <- whichAreConstant(OJ)
+double_cols <- whichAreInDouble(OJ)
+bijections_cols <- whichAreBijection(OJ)
+#The above results shows that STORE can be derived from StoreID. Thus, there is no need to consider STORE variable in our model.
+
+
+```
+Removed the following variables from the dataframe: \newline
+  
+  - STORE
+```{r, echo=TRUE}
+#Store 7 and Store are redundant variables. These two varaibles provide same information as the StoreID variable. When the store is 7, at that time, StoreID will be 7 and Store7 will be yes, also the value of store will be zero and when store is some other value, say 1, StoreID will be 1, Store7 will be No, and Store will be 1. Therefore, we can only keep StoreID and through this we can derive other information.
+#STORE is a bijection of STOREID
+
+
+New_OJ <- OJ[, c(-18)]
+included_cols <- whichAreIncluded(New_OJ)
+New_OJ <- New_OJ[, c(-6,-7,-14)]
+#As you can see the above results, there are some vaiables in our data frame that can be derived from other variable. Thus we need to remove these variables.
+
+```
+  - Store7
+  - DiscCH
+  - DiscMM
+
+-------------
+### 2.1.4 Factorizing Attributes
+
+```{r, echo=TRUE}
+#Finding the attributes which need to be factored
+str(New_OJ)
+
+#factorizing the required attributes
+New_OJ$StoreID <- as.factor(New_OJ$StoreID)
+New_OJ$Purchase <- ifelse(New_OJ$Purchase == "CH", 1, 0)
+
+str(New_OJ)
+
+```
+
+### 2.1.5 Removing Highly Correlated Variables
+We remove highly correlated variable to elimate the redundancy in our model and decrease the complexity.
+```{r, echo=TRUE}
+# Correlation 
+Cor_data <- New_OJ[, c("PriceCH", "PriceMM", "LoyalCH", "SalePriceMM", "SalePriceCH", "PriceDiff", "PctDiscMM", "PctDiscCH", "ListPriceDiff")]
+cor_result <- cor(Cor_data)
+cor_result
+corrplot(cor_result, method="number")
+```
+As we can see in the correlation graph above, the variables with value closer to 1 or -1 have strong correlation. The sign indicate whether they are proportional or inversely proportional.
+
+```{r, echo=TRUE}
+#Removing attributes having high correlation
+#SalePriceCH
+#SalePriceMM
+#PriceDiff
+#ListPriceDiff
+
+New_OJ <- New_OJ[, c(-9, -10, -11, -14)]
+```
+
+After finding correlation, we have removed the following variables from the dataframe:\newline
+  
+  - SalePriceCH
+  - SalePriceMM
+  - PriceDiff
+  - ListPriceDiff
+
+Till now, we have removed all the redundant and irrelevant variables form our dataframe. By removing unnecessary variables, we are increasing the accuracy and decreasing the complexity of our model. If we don't remove the unnecessary variables then it will not follow occam's law of parsimony and our model will become more hard to anaylze.
+
+
+Afte removal of unnecessary variables, the variables that we are going to use in our model creations are:\newline
+  
+  - Purchase
+  - WeekOfPurchase
+  - StoreID
+  - PriceCH
+  - PriceMM
+  - SpecialCH
+  - SpecialMM
+  - LoyalCH
+  - PctDiscMM
+  - PctDiscCH
+
+
+
+## 2 Reducing Overfitting
+### 2.1 Splitting the data into Test and Train For Logistic Regression
+
+To know whether our model is able to predict correct outcomes or not. We generally create our model using train data and for validation and testing, we use the test data. Train and test data, both are part of data frame.
+Here, we are using this technique to split data frame into Train and Test in the ration of 4:1 (i.e., value of split is 0.8) for Logistic Regression.
+
+## 2.2 Using Cross Validation for SVM
+
+Using 4-fold Cross validation for SVM to optimize the training set and testing set and thus reducing overfitting.
+```{r, echo=TRUE}
+split = 0.8
+set.seed(99894)
+
+train_index <- sample(1:nrow(New_OJ), split * nrow(New_OJ))
+test_index <- setdiff(1:nrow(New_OJ), train_index)
+
+OJ_train <- New_OJ[train_index,]
+OJ_test <- New_OJ[test_index,]
+OJ_train
+OJ_test
+```
+
+# 2 Logistic Regression
+Using glm funtion on the train dataframe to perform logistic Regression on the binomial family since the Purchase, the outcome variable, has only two possible outcomes. Then using test dataframe to predict from our trained model. Also, analyzing the confusion matrix to find out the accuracy of the model and AIC value. 
+```{r, echo=TRUE}
+#model1
+LR_clean_OJ <- glm(family = "binomial", Purchase ~., data = OJ_train)
+summary(LR_clean_OJ)$coefficients
+LR_clean_OJ
+
+prediction <- predict(LR_clean_OJ, OJ_test, type = "response")
+result <- ifelse(prediction > 0.50, '1', '0')
+
+confusionMatrix(data = as.factor(result), as.factor(OJ_test$Purchase))
+
+```
+
+The P-values for SpecialCH, SpecialMM, and WeekOfPurchase are more than 0.05, which states that these variables will not influence the outcome varaible, i.e., Purchase. Therefore, we will remove these varaibles from our model.
+
+Now, we will create a new model (model 2) with only the significant variables.
+```{r, echo=TRUE}
+LR_reduced_OJ <- glm(family = "binomial", Purchase ~ StoreID + PriceCH + PriceMM + LoyalCH + PctDiscMM + PctDiscCH, data = OJ_train)
+summary(LR_reduced_OJ)$coefficients
+LR_reduced_OJ
+
+prediction2 <- predict(LR_reduced_OJ, OJ_test, type = "response")
+result2 <- ifelse(prediction > 0.50, 1, 0)
+
+confusionMatrix(data = as.factor(result2), as.factor(OJ_test$Purchase))
+
+```
+
+The AIC values show that the model with reduced variables (model 2) is better than the old model (model 1).
+
+
+# 3 SVM
+## 3.1 Preparing training and test data by using 4-fold Cross Validation
+```{r, echo=TRUE}
+#SVM
+
+New_OJ2 <- OJ %>% 
+  mutate(
+    Purchase = recode_factor(Purchase, "MM" = 'Y' , "CH" = 'N'),
+    Purchase = factor(Purchase),
+    StoreID = factor(StoreID),
+    SpecialMM = factor(SpecialMM),
+    SpecialCH = factor(SpecialCH)
+    )
+
+
+# IDENTIFYING VARIABLES THAT ARE EITHER CONSTANTS, DOUBLES or BIJECTIONS
+# AND THEN ELIMINATING
+b_vars <- whichAreBijection(New_OJ2)
+c_vars <- whichAreConstant(New_OJ2)
+d_vars <- whichAreInDouble(New_OJ2)
+b_vars
+c_vars
+d_vars
+
+New_OJ2 <- New_OJ2[,c(-18)]
+
+# Removing Included Variables
+i_vars <- whichAreIncluded(New_OJ2)
+i_vars
+New_OJ2 <- New_OJ2[,c(-14,-7,-6)]
+
+#Finding Correlation Matrix using numrical attributes
+cor_data <- New_OJ2[, c(-1,-2,-3,-6,-7)]
+corr_mat <- cor(cor_data)
+corrplot(corr_mat, method = "number")
+
+#Removing the highly correlated attributes
+
+New_OJ2 <- New_OJ2[,c(-14,-11,-10,-9)]
+
+#Model1 & Model2
+
+New_OJ2 <- New_OJ2[,c(-2)]
+
+#Code from Prof. Himanshu Mishra's SVM class
+
+X_train_unscaled <- New_OJ2[train_index,-1]
+y_train <- New_OJ2[train_index, 1]
+
+X_test_unscaled <- New_OJ2[test_index, -1]
+y_test <- New_OJ2[test_index, 1]
+
+
+# DATA IS STANDARDIZED AND ENCODED (see see https://cran.r-project.org/web/packages/dataPreparation/vignettes/train_test_prep.html)
+# Standardize continuous variables...
+scales <- build_scales(dataSet = X_train_unscaled, cols = "auto", verbose = FALSE) 
+
+X_train <- fastScale(dataSet = X_train_unscaled, scales = scales, verbose = FALSE)
+X_test <- fastScale(dataSet = X_test_unscaled, scales = scales, verbose = FALSE)
+
+# Encode categorical variables...
+encoding <- build_encoding(dataSet = X_train, cols = "auto", verbose = FALSE) 
+X_train <- one_hot_encoder(dataSet = X_train, encoding = encoding, drop = TRUE, verbose = FALSE)
+X_test <- one_hot_encoder(dataSet = X_test, encoding = encoding, drop = TRUE, verbose = FALSE)
+
+# Create one data frame using both Outcome and Predictor Variables
+
+train_Data <- cbind(y_train,X_train)
+```
+## 3.2 Implementing Radial SVM 
+Here, we are going to use radial SVM with different values of hyperparameters, i.e., C and Sigma. After this, using the trained model on the test data, and generating confusion matrix to get the accuracy of the model. 
+
+```{r, echo=TRUE}
+
+fitControl <- trainControl(## 4-fold CV
+  method = "repeatedcv",
+  number = 4,
+  ## repeated two times
+  repeats = 2,
+  summaryFunction=twoClassSummary,
+  classProbs = TRUE)
+
+grid <- expand.grid(sigma = c(.01,.05),
+                    C = c(.05,.75,1,1.5,2))
+
+# FIND OPTIMAL TUNING PARAMETERS (C and SIGMA)
+
+svmFit1 <- train(Purchase ~ ., data = train_Data, 
+                 method='svmRadial',  
+                 trControl = fitControl,
+                 metric = "ROC",
+                 verbose = FALSE,
+                 probability = TRUE,
+                 tuneGrid = grid
+                 
+)
+#final values of hyperparameters; sigma = 0.01, C = 2
+
+##Create a plot of ROC with with different values of C and gamma
+
+
+svmFit1
+
+
+## Predict
+svmPred <- predict(svmFit1, newdata = X_test, probability = TRUE)
+
+confusionMatrix(data = svmPred, as.factor(y_test$Purchase))
+plot(svmFit1)
+```
+The above graph shows that the Sigma with value 0.01 is better than sigma with value 0.05. Since the area under the blue curve is more than that of red curve.
+
+
+## 3.3 Implementing Linear SVM 
+Using Linear SVM with different values of hyperparameters, i.e., C and Sigma. After this, using the trained model on the test data, and generating confusion matrix to get the accuracy of the model.
+
+```{r, echo=TRUE}
+#LinearSVM 
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+svmFitL <- train(Purchase ~ ., data = train_Data, 
+                 method='svmLinear',  
+                 trControl = trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10)
+                 
+
+
+svmFitL
+
+## Predict
+svmPredL <- predict(svmFitL, newdata = X_test, probability = TRUE)
+
+confusionMatrix(data = svmPredL, as.factor(y_test$Purchase))
+```
+# 4 Result and Conclusion
+After analyzing both the supervised models, i.e., SVM and Logistic Regression, we came to the conclusion that the Linear SVM model is a better option. Linear SVM has given slightly beter accuracy than the other two models, which are Radial SVM and Logistic model.  
+
+
+## 4.1 Branch Manager's Questions
+### 4.1.1 What predictor variables influence the purchase of MM?
+
+  - StoreID : StoreID
+  - LoyalCH : Customer brand loyalty for CH. That is, probability to buy CH (over MM) based
+on prior purchase behavior
+  - PriceCH :Price charged for CH. Also called List Price for CH
+  - PriceMM :Price charged for MM. Also called List Price for MM
+  - PctDiscCH :Percentage discount for CH
+  - PctDiscMM :Percentage discount for MM
+
+### 4.1.2 Are all the variables in the dataset effective or are some more effective than others?
+  There are some variables which are statistically signicant and are more effective than others. These variables are as follows:
+  
+  - LoyalCH
+  - PriceMM
+  - PctDiscMM
+  - PctDicCH
+
+### 4.1.3 How confident are you in your recommendations?
+  In Logistic Regression table, it is clear that there are some variables with p value < 0.05. Thus, these variables have a significant impact on the outcome variable, i.e., Purchase. Also, the accuracy came 83.64%.
+
+
+## 4.2 Sales Manager Questions
+
+### 4.2.1 Can you provide him a predictive model that can tell him the probability of customers buying MM?
+  Logistic Regression is a better option since it does not make absoulte probability of a customer buying MM while SVM makes absolute prediction. Also, in LR, we can set a threshold to make the prediction. Also, the complexity of Logistic model is less compared to the SVM models.
+  
+### 4.2.2 How good is the model in its predictions?
+  After analyzing our model, we can say that our model is 83.64% accurate.
+  
+### 4.2.3 How confident are you in your recommendations?
+  With 95% Confidence Interval, our model covers the range from 0.78  to 0.8834 probability. Also, the p-value of our model is less than 0.05 which shows that our model is statistically significant.
+
+
+# 5 Recommendation
+To increase customers probability of buying MM, we can:
+
+  - increase the Discount on MM or reduce the price of MM or increase the price of CH
+  - Provide Loyalty points for MM same as CH.
+
+
+# 6 Reference
+  - Lecture Handouts from Machine Learning class. Author: Prof. Himanshu Mishra
+  - https://www.guru99.com/r-apply-sapply-tapply.html
+  - https://stats.stackexchange.com/questions/95340/comparing-svm-and-logistic-regression
+  - https://rdrr.io/cran/ISLR/man/OJ.html
+  - https://cran.r-project.org/web/packages/ISLR/ISLR.pdf
+  - https://towardsdatascience.com/support-vector-machine-vs-logistic-regression-94cc2975433f
